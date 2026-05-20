@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <unistd.h>
 #include <string.h>
+#include <SDL2/SDL.h>
 
 typedef struct{
 	uint8_t memory[4096];
@@ -13,22 +13,45 @@ typedef struct{
 	int display[64*32];
 }chip8;
 
+SDL_Window* window = NULL;
+SDL_Renderer* render = NULL;
+int draw_flag = 0;
+
 void load_rom(chip8* mychip8);
 void emulate_cycle(chip8* mychip8);
-void render(chip8* mychip8);
+void render_engine(chip8* mychip8);
 
 int main(){
 	chip8 mychip8;
 	//loading rom
+	
+	window = SDL_CreateWindow(
+        "CHIP-8 Emulator",
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+	640, 
+	320,SDL_WINDOW_SHOWN);
+
+	render = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+
 	load_rom(&mychip8);
 	mychip8.isrunning = true;
 	mychip8.pc = 0x200;
-	printf("\033[2J\033[?25l");
 	while(mychip8.isrunning){
+		SDL_Event event;
+        	while (SDL_PollEvent(&event)) {
+            		if (event.type == SDL_QUIT) {
+                		mychip8.isrunning = false;
+            		}
+        	}	
 		emulate_cycle(&mychip8);
-		render(&mychip8);
+		if(draw_flag){
+			render_engine(&mychip8);
+			draw_flag = 0;
+		}
 	}
-	printf("\033[?25h");
+	SDL_DestroyRenderer(render);
+    	SDL_DestroyWindow(window);
+    	SDL_Quit();
 	return 0;
 }
 
@@ -52,6 +75,7 @@ void emulate_cycle(chip8* mychip8){
 		case(0x0000):
 			if(opcode == 0x00E0){
 				memset(mychip8->display,0,sizeof(mychip8->display));
+				draw_flag = 1;
 			}
 			break;
 		case(0xA000):
@@ -85,6 +109,7 @@ void emulate_cycle(chip8* mychip8){
 			}
 			break;
 		case(0xD000):
+			draw_flag = 1;
 			uint8_t n = opcode&0x000F;
 			//collision flag
 			mychip8->V[0xF]=0;
@@ -109,19 +134,24 @@ void emulate_cycle(chip8* mychip8){
 	}
 }
 
-void render(chip8* mychip8){
-	printf("\033[H");
+void render_engine(chip8* mychip8){
+	//fill with black
+	SDL_SetRenderDrawColor(render,0,0,0,255);
+	SDL_RenderClear(render);
+
 	for(int y=0; y<32; y++){
 		for(int x=0;x<64;x++){
 			int index = (y*64)+x;
 			if(mychip8->display[index] == 1){
-				printf("##");
+				SDL_Rect pixel;
+				pixel.x = x*10;
+				pixel.y = y*10;
+				pixel.w = 10;
+				pixel.h = 10;
+				SDL_SetRenderDrawColor(render,255,255,255,255);
+				SDL_RenderFillRect(render,&pixel);	
 			}
-			else{
-				printf("  ");
-			}
-		}
-		printf("\n");
+		}	
+	SDL_RenderPresent(render);
 	}
-	fflush(stdout);
 }
