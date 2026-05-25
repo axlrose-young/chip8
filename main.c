@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <SDL2/SDL.h>
+#include <time.h>
 
 typedef struct{
 	uint8_t memory[4096];
@@ -11,12 +12,16 @@ typedef struct{
 	uint16_t pc;
 	bool isrunning;
 	int display[64*32];
+	uint8_t sp;
+	uint16_t stack[16];
+	uint8_t keys[16];
 }chip8;
 
 SDL_Window* window = NULL;
 SDL_Renderer* render = NULL;
 int draw_flag = 0;
 
+void sdl_event(chip8* mychip8);
 void load_rom(chip8* mychip8);
 void emulate_cycle(chip8* mychip8);
 void render_engine(chip8* mychip8);
@@ -36,13 +41,10 @@ int main(){
 	load_rom(&mychip8);
 	mychip8.isrunning = true;
 	mychip8.pc = 0x200;
+	mychip8.sp = 0;
+	srand(time(NULL));
 	while(mychip8.isrunning){
-		SDL_Event event;
-        	while (SDL_PollEvent(&event)) {
-            		if (event.type == SDL_QUIT) {
-                		mychip8.isrunning = false;
-            		}
-        	}	
+		sdl_event(&mychip8);	
 		emulate_cycle(&mychip8);
 		if(draw_flag){
 			render_engine(&mychip8);
@@ -56,7 +58,7 @@ int main(){
 }
 
 void load_rom(chip8* mychip8){
-	FILE* pfile = fopen("ibm.ch8","rb");
+	FILE* pfile = fopen("br8kout.ch8","rb");
 	if(pfile == NULL){
 		perror("Error opening rom\n");
 	}
@@ -66,6 +68,7 @@ void load_rom(chip8* mychip8){
 void emulate_cycle(chip8* mychip8){
 	uint16_t opcode;
 	opcode = (mychip8->memory[mychip8->pc] << 8) | mychip8->memory[mychip8->pc+1];
+	printf("opcode: %x, pc: %d\n",opcode,mychip8->pc);
 	if(mychip8->pc >= 4096){
 		mychip8->isrunning = false;
 	}
@@ -73,9 +76,30 @@ void emulate_cycle(chip8* mychip8){
 
 	switch(opcode&0xF000){
 		case(0x0000):
-			if(opcode == 0x00E0){
-				memset(mychip8->display,0,sizeof(mychip8->display));
-				draw_flag = 1;
+			switch(opcode&0x00FF){
+				case(0x00E0):
+					memset(mychip8->display,0,sizeof(mychip8->display));
+					draw_flag = 1;
+					break;
+				case(0x00EE):
+					mychip8->pc = mychip8->sp;
+					mychip8->sp-=1;
+					break;	
+			}
+			break;
+		case(0x2000):
+			mychip8->stack[mychip8->sp] = mychip8->pc;	
+			mychip8->sp++;
+			mychip8->pc = opcode&0x0FFF;
+			break;	
+		case(0x4000):
+			if(mychip8->V[(opcode&0x0F00)>>8]!=opcode&0x00FF){
+				mychip8->pc+=2;
+			}
+			break;
+		case(0x5000):
+			if(mychip8->V[(opcode&0x0F00)>>8] == mychip8->V[(opcode&0x00F0)>>4]){
+				mychip8->pc+=2;
 			}
 			break;
 		case(0xA000):
@@ -90,11 +114,99 @@ void emulate_cycle(chip8* mychip8){
 		case(0x7000):
 			mychip8->V[(opcode&0x0F00)>>8]+=opcode&0x00FF;
 			break;
+		case(0x8000):
+			switch(opcode&0x000F){
+				case(0x0001):
+					mychip8->V[(opcode&0x0F00)>>8] |= mychip8->V[(opcode&0x00F0)>>4];
+					break;
+				case(0x0002):
+					mychip8->V[(opcode&0x0F00)>>8] &= mychip8->V[(opcode&0x00F0)>>4];
+					break;
+				case(0x0003):
+					mychip8->V[(opcode&0x0F00)>>8] &= mychip8->V[(opcode&0x00F0)>>4];
+					break;	
+				case(0x0004):
+					uint16_t result = mychip8->V[(opcode&0x0F00)>>8] + mychip8->V[(opcode&0x00F0)>>4];
+					if(result>255){
+						mychip8->V[0xF] = 1;
+					}
+					else{
+						mychip8->V[0xF] = 0;
+					}
+					mychip8->V[(opcode&0x0F00)>>8] = result & 0x00FF;
+					break;	
+				case(0x0005):
+					if(mychip8->V[(opcode&0x0F00)>>8]>mychip8->V[(opcode&0x00F0)>>4]){
+						mychip8->V[0xF] = 1;
+					}
+					else{
+						mychip8->V[0xF] = 0;
+					}
+					mychip8->V[(opcode&0x0F00)>>8] -= mychip8->V[(opcode&0x00F0)>>4];
+					break;	
+				case(0x0006):
+					if(mychip8->V[(opcode&0x0F00)>>8] & 0x01 == 1){
+						mychip8->V[0xF] = 1;
+					}	
+					else{
+						mychip8->V[0xF] = 0;
+					}	
+					mychip8->V[(opcode&0x0F00)>>8]>>1;
+					break;
+				case(0x0007):
+					if(mychip8->V[(opcode&0x0F00)>>8]<mychip8->V[(opcode&0x00F0)>>4]){
+						mychip8->V[0xF] = 1;
+					}
+					else{
+						mychip8->V[0xF] = 0;
+					}
+					mychip8->V[(opcode&0x0F00)>>8] = mychip8->V[(opcode&0x00F0)>>4] - mychip8->V[(opcode&0xF000)>>8];
+					break;
+				case(0x000E):
+					if(mychip8->V[(opcode&0x0F00)>>8] & 0x80 == 0x80){
+						mychip8->V[0xF] = 1;
+					}	
+					else{
+						mychip8->V[0xF] = 0;
+					}
+					mychip8->V[(opcode&0x0F00)>>8] << 1;
+					break;
+				break;
+			}
+		case(0x9000):
+			if(mychip8->V[(opcode&0x0F00)>>8] != mychip8->V[(opcode&0x00F0)>>4]){
+				mychip8->pc+=2;
+			}
+			break;
+		case(0xB000):
+			mychip8->pc = opcode&0x0FFF + mychip8->V[0];
+			break;
+		case(0xC000):
+			uint8_t random = rand() & 0xFF;			
+			mychip8->V[(opcode&0x0F00)>>8] & (opcode & 0x00FF);
+			break;
 		case(0x3000):
 			if((mychip8->V[opcode&0x0F00]>>8)==opcode&0x00FF){
 				mychip8->pc+=2;
 			}
 			break;
+		case(0xE000):
+			switch(opcode&0x00FF){
+				case(0x009E):{
+					uint8_t key_check = mychip8->V[(opcode&0x0F00)>>8];	
+					if(mychip8->keys[key_check] == 1){
+						mychip8->pc+=2;
+					}
+					break;
+				}
+				case(0x00A1):{
+					uint8_t key_check = mychip8->V[(opcode&0x0F00)>>8];
+					if(mychip8->keys[key_check] == 0){
+						mychip8->pc+=2;		
+					}		
+					break;
+				}
+			}
 		case(0xF000):
 			switch(opcode&0x00FF){
 				case(0x001E):
@@ -136,7 +248,7 @@ void emulate_cycle(chip8* mychip8){
 
 void render_engine(chip8* mychip8){
 	//fill with black
-	SDL_SetRenderDrawColor(render,0,0,0,255);
+	SDL_SetRenderDrawColor(render,225,105,180,255);
 	SDL_RenderClear(render);
 
 	for(int y=0; y<32; y++){
@@ -148,10 +260,60 @@ void render_engine(chip8* mychip8){
 				pixel.y = y*10;
 				pixel.w = 10;
 				pixel.h = 10;
-				SDL_SetRenderDrawColor(render,255,255,255,255);
+				SDL_SetRenderDrawColor(render,255,227,192,255);
 				SDL_RenderFillRect(render,&pixel);	
 			}
 		}	
 	SDL_RenderPresent(render);
 	}
+}
+
+void sdl_event(chip8* mychip8){
+	SDL_Event event;
+	while(SDL_PollEvent(&event)){
+		switch(event.type){
+			case SDL_QUIT:
+				mychip8->isrunning = false;	
+				break;
+			case SDL_KEYDOWN:
+				switch(event.key.keysym.sym){
+					case SDLK_1: mychip8->keys[0x1] = 1; break;
+					case SDLK_2: mychip8->keys[0x2] = 1; break;
+					case SDLK_3: mychip8->keys[0x3] = 1; break;
+					case SDLK_4: mychip8->keys[0xC] = 1; break;
+					case SDLK_q: mychip8->keys[0x4] = 1; break;
+					case SDLK_w: mychip8->keys[0x5] = 1; break;
+					case SDLK_e: mychip8->keys[0x6] = 1; break;
+					case SDLK_r: mychip8->keys[0xD] = 1; break;
+					case SDLK_a: mychip8->keys[0x7] = 1; break;
+					case SDLK_s: mychip8->keys[0x8] = 1; break;
+					case SDLK_d: mychip8->keys[0x9] = 1; break;
+					case SDLK_f: mychip8->keys[0xE] = 1; break;
+					case SDLK_z: mychip8->keys[0xA] = 1; break;
+					case SDLK_x: mychip8->keys[0x0] = 1; break;
+					case SDLK_c: mychip8->keys[0xB] = 1; break;
+					case SDLK_v: mychip8->keys[0xF] = 1; break;
+				}
+			case SDL_KEYUP:
+				switch(event.key.keysym.sym){
+					case SDLK_1: mychip8->keys[0x1] = 0; break;
+					case SDLK_2: mychip8->keys[0x2] = 0; break;
+					case SDLK_3: mychip8->keys[0x3] = 0; break;
+					case SDLK_4: mychip8->keys[0xC] = 0; break;
+					case SDLK_q: mychip8->keys[0x4] = 0; break;
+					case SDLK_w: mychip8->keys[0x5] = 0; break;
+					case SDLK_e: mychip8->keys[0x6] = 0; break;
+					case SDLK_r: mychip8->keys[0xD] = 0; break;
+					case SDLK_a: mychip8->keys[0x7] = 0; break;
+					case SDLK_s: mychip8->keys[0x8] = 0; break;
+					case SDLK_d: mychip8->keys[0x9] = 0; break;
+					case SDLK_f: mychip8->keys[0xE] = 0; break;
+					case SDLK_z: mychip8->keys[0xA] = 0; break;
+					case SDLK_x: mychip8->keys[0x0] = 0; break;
+					case SDLK_c: mychip8->keys[0xB] = 0; break;
+					case SDLK_v: mychip8->keys[0xF] = 0; break;
+				}
+		}
+	}
+
 }
