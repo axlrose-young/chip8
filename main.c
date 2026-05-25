@@ -4,6 +4,7 @@
 #include <string.h>
 #include <SDL2/SDL.h>
 #include <time.h>
+#define DEBUG_MODE 1
 
 typedef struct{
 	uint8_t memory[4096];
@@ -25,6 +26,7 @@ void sdl_event(chip8* mychip8);
 void load_rom(chip8* mychip8);
 void emulate_cycle(chip8* mychip8);
 void render_engine(chip8* mychip8);
+void disassembler(uint16_t opcode, chip8* mychip8);
 
 int main(){
 	chip8 mychip8;
@@ -68,7 +70,11 @@ void load_rom(chip8* mychip8){
 void emulate_cycle(chip8* mychip8){
 	uint16_t opcode;
 	opcode = (mychip8->memory[mychip8->pc] << 8) | mychip8->memory[mychip8->pc+1];
-	printf("opcode: %x, pc: %d\n",opcode,mychip8->pc);
+	// Call disassembler
+	if(DEBUG_MODE){
+		disassembler(opcode, mychip8);
+      	}
+
 	if(mychip8->pc >= 4096){
 		mychip8->isrunning = false;
 	}
@@ -254,9 +260,7 @@ void render_engine(chip8* mychip8){
 	for(int y=0; y<32; y++){
 		for(int x=0;x<64;x++){
 			int index = (y*64)+x;
-			if(mychip8->display[index] == 1){
-				SDL_Rect pixel;
-				pixel.x = x*10;
+			if(mychip8->display[index] == 1){ SDL_Rect pixel; pixel.x = x*10;
 				pixel.y = y*10;
 				pixel.w = 10;
 				pixel.h = 10;
@@ -267,6 +271,109 @@ void render_engine(chip8* mychip8){
 	SDL_RenderPresent(render);
 	}
 }
+
+void disassembler(uint16_t opcode, chip8* mychip8){
+	printf("[ opcode: %x ] [ pc: %d ] ",opcode, mychip8->pc);
+
+	switch(opcode&0xF000){
+		case(0x0000):
+			switch(opcode&0x00FF){
+				case(0x00E0):
+					printf("[ CLS ] ");
+					break;
+				case(0x00EE):
+					printf("[ RET ] ");
+					break;	
+			}
+			break;
+		case(0x2000):
+			printf("[ CALL addr ]");
+			break;	
+		case(0x4000):
+			printf("[ SNE if Vx != byte ]");
+			break;
+		case(0x5000):
+			printf("[ SE if Vx=Vy ]");
+			break;
+		case(0xA000):
+			printf("[ LD I, addr ]");
+			break;
+		case(0x6000):
+			printf("[ LD Vx, byte ]");
+			break;
+		case(0x1000):
+			printf("[ JP addr ]");
+			break;
+		case(0x7000):
+			printf("[ ADD Vx, byte ]");
+			break;
+		case(0x8000):
+			switch(opcode&0x000F){
+				case(0x0001):
+					printf("[ OR Vx, Vy ]");
+					break;
+				case(0x0002):
+					printf("[ AND Vx, Vy ]");
+					break;
+				case(0x0003):
+					printf("[ XOR Vx, Vy ]");
+					break;	
+				case(0x0004):
+					printf("[ ADD Vx, Vy ]");
+					break;	
+				case(0x0005):
+					printf("[ SUB Vx, Vy ]");
+					break;	
+				case(0x0006):
+					printf("[ Set Vx = Vx SHR 1 ]");
+					break;
+				case(0x0007):
+					printf("[ SUBN Vx, Vy ]");
+					break;
+				case(0x000E):
+					printf("[ Set Vx=Vx SHL 1 ]");
+					break;
+				break;
+			}
+		case(0x9000):
+			printf("[ SNE if Vx != Vy ]");
+			break;
+		case(0xB000):
+			printf("[ JP V0, addr ]");
+			break;
+		case(0xC000):
+			printf("[ RND Vx, byte ]");
+			break;
+		case(0x3000):
+			printf("[ SE if Vx = byte ]");
+			break;
+		case(0xE000):
+			switch(opcode&0x00FF){
+				case(0x009E):
+					printf("[ SKP Vx ]");
+					break;
+				case(0x00A1):
+					printf("[ SKNP Vx ]");	
+					break;
+			}
+		case(0xF000):
+			switch(opcode&0x00FF){
+				case(0x001E):
+					printf("[ ADD I, Vx ]");
+					break;
+				case(0x0065):
+					printf("[ LD Vx, I ]");
+					break;
+			}
+			break;
+		case(0xD000):
+			printf("[ DRW Vx, Vy, nibble ]");	
+			break;
+	}
+	printf("\n");
+}
+
+
 
 void sdl_event(chip8* mychip8){
 	SDL_Event event;
