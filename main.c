@@ -4,6 +4,7 @@
 #include <string.h>
 #include <SDL2/SDL.h>
 #include <time.h>
+#include <unistd.h>
 #define DEBUG_MODE 1
 
 typedef struct{
@@ -16,7 +17,28 @@ typedef struct{
 	uint8_t sp;
 	uint16_t stack[16];
 	uint8_t keys[16];
+	uint8_t delay_timer;
+	uint8_t sound_timer;
 }chip8;
+
+uint8_t chip8_fontset[80] = {
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80  // F
+};
 
 SDL_Window* window = NULL;
 SDL_Renderer* render = NULL;
@@ -44,14 +66,31 @@ int main(){
 	mychip8.isrunning = true;
 	mychip8.pc = 0x200;
 	mychip8.sp = 0;
+	memset(mychip8.keys, 0, sizeof(mychip8.keys));
+	memset(mychip8.display, 0, sizeof(mychip8.display));
 	srand(time(NULL));
+	
+	// 600Hz cpu speed - executes instructions at this speed
+	// 60 Hz timer - 60 ticks in a sec
+	// for instructions per tick - (600 Hz/s) / (60 ticks/s)
+	// 10 instructions per tick
+		
 	while(mychip8.isrunning){
-		sdl_event(&mychip8);	
-		emulate_cycle(&mychip8);
+		for(uint8_t i=0; i<10; i++){
+			sdl_event(&mychip8);
+			emulate_cycle(&mychip8);
+		}
+		if(mychip8.delay_timer > 0){
+			mychip8.delay_timer--;
+		}
+		if(mychip8.sound_timer > 0){
+			mychip8.sound_timer--;	
+		}
 		if(draw_flag){
 			render_engine(&mychip8);
 			draw_flag = 0;
 		}
+		usleep(16666);
 	}
 	SDL_DestroyRenderer(render);
     	SDL_DestroyWindow(window);
@@ -60,10 +99,11 @@ int main(){
 }
 
 void load_rom(chip8* mychip8){
-	FILE* pfile = fopen("br8kout.ch8","rb");
+	FILE* pfile = fopen("Pong.ch8","rb");
 	if(pfile == NULL){
 		perror("Error opening rom\n");
 	}
+	memcpy(&mychip8->memory[0], chip8_fontset, 80);
 	fread(&mychip8->memory[0x200],1,sizeof(mychip8->memory),pfile);
 }
 
@@ -88,8 +128,8 @@ void emulate_cycle(chip8* mychip8){
 					draw_flag = 1;
 					break;
 				case(0x00EE):
-					mychip8->pc = mychip8->sp;
-					mychip8->sp-=1;
+					mychip8->sp--;
+					mychip8->pc = mychip8->stack[mychip8->sp];
 					break;	
 			}
 			break;
@@ -99,7 +139,7 @@ void emulate_cycle(chip8* mychip8){
 			mychip8->pc = opcode&0x0FFF;
 			break;	
 		case(0x4000):
-			if(mychip8->V[(opcode&0x0F00)>>8]!=opcode&0x00FF){
+			if(mychip8->V[(opcode&0x0F00)>>8]!=(opcode&0x00FF)){
 				mychip8->pc+=2;
 			}
 			break;
@@ -118,7 +158,7 @@ void emulate_cycle(chip8* mychip8){
 			mychip8->pc = opcode&0x0FFF;
 			break;
 		case(0x7000):
-			mychip8->V[(opcode&0x0F00)>>8]+=opcode&0x00FF;
+			mychip8->V[(opcode&0x0F00)>>8]+=(opcode&0x00FF);
 			break;
 		case(0x8000):
 			switch(opcode&0x000F){
@@ -177,8 +217,8 @@ void emulate_cycle(chip8* mychip8){
 					}
 					mychip8->V[(opcode&0x0F00)>>8] << 1;
 					break;
-				break;
 			}
+			break;
 		case(0x9000):
 			if(mychip8->V[(opcode&0x0F00)>>8] != mychip8->V[(opcode&0x00F0)>>4]){
 				mychip8->pc+=2;
@@ -192,7 +232,7 @@ void emulate_cycle(chip8* mychip8){
 			mychip8->V[(opcode&0x0F00)>>8] & (opcode & 0x00FF);
 			break;
 		case(0x3000):
-			if((mychip8->V[opcode&0x0F00]>>8)==opcode&0x00FF){
+			if((mychip8->V[(opcode&0x0F00)>>8])==(opcode&0x00FF)){
 				mychip8->pc+=2;
 			}
 			break;
@@ -213,15 +253,58 @@ void emulate_cycle(chip8* mychip8){
 					break;
 				}
 			}
+			break;
 		case(0xF000):
 			switch(opcode&0x00FF){
+				case(0x0007):
+					mychip8->V[(opcode&0x0F00)>>8] = mychip8->delay_timer;
+					break;
+				case(0x000A):
+					int key_pressed = 0;
+					uint8_t pressed_key;
+					for(uint8_t i = 0; i<16 ; i++){
+						if(mychip8->keys[i] != 0){
+							key_pressed = 1;		
+							pressed_key = i;
+						}
+					}
+					if(key_pressed == 1){
+						mychip8->V[(opcode&0x0F00)>>8] = pressed_key;
+					}
+					else{
+						mychip8->pc-=2;	
+					}
+					break;
+				case(0x0015):
+					mychip8->delay_timer = mychip8->V[(opcode&0x0F00)>>8];
+					break;
+				case(0x0018):
+					mychip8->sound_timer = mychip8->V[(opcode&0x0F00)>>8];
+					break;
 				case(0x001E):
 					mychip8->I+=mychip8->V[(opcode&0x0F00)>>8];
 					break;
+				case(0x0029):
+					uint8_t digit = mychip8->V[(opcode&0x0F00)>>8];
+					mychip8->I = digit*5;
+					break;	
+				case(0x0033):
+					int value = mychip8->V[(opcode&0x0F00)>>8];
+					mychip8->memory[mychip8->I] = value / 100;
+					mychip8->memory[mychip8->I + 1] = (value / 10) % 10;
+					mychip8->memory[mychip8->I + 2] = value % 10;
+					break;	
+				case(0x0055):{
+					uint8_t x = (opcode&0x0F00)>>8;
+					for(uint8_t i = 0; i<x+1; i++){
+						mychip8->V[i] = mychip8->memory[mychip8->I+i];
+					}
+					break;
+				}
 				case(0x0065):
 					uint8_t x=(opcode&0x0F00)>>8;
 					for(int i=0;i<x+1;i++){
-						mychip8->V[i] = mychip8->memory[mychip8->I+i];
+						mychip8->memory[mychip8->I+i] = mychip8->V[i];
 					}
 					break;
 			}
@@ -233,13 +316,13 @@ void emulate_cycle(chip8* mychip8){
 			mychip8->V[0xF]=0;
 			uint16_t x_cords = mychip8->V[(opcode&0x0F00)>>8];
 			uint16_t y_cords = mychip8->V[(opcode&0x00F0)>>4];
-			for(int i=0; i<n; i++){
+			for(uint8_t i=0; i<n; i++){
 				uint8_t byte = mychip8->memory[mychip8->I+i];
-				for(int j=0; j<8; j++){
+				for(uint8_t j=0; j<8; j++){
 					uint8_t pixel = byte & (0x80 >> j);
 					if(pixel != 0){
-						int x_display = x_cords + j % 64;
-						int y_display = y_cords + i % 32;
+						int x_display = (x_cords + j) % 64;
+						int y_display = (y_cords + i) % 32;
 						int index = (y_display*64) + x_display;
 						if(mychip8->display[index] == 1){
 							mychip8->V[0xF] = 1;
@@ -260,7 +343,9 @@ void render_engine(chip8* mychip8){
 	for(int y=0; y<32; y++){
 		for(int x=0;x<64;x++){
 			int index = (y*64)+x;
-			if(mychip8->display[index] == 1){ SDL_Rect pixel; pixel.x = x*10;
+			if(mychip8->display[index] == 1){ 
+				SDL_Rect pixel; 
+				pixel.x = x*10;
 				pixel.y = y*10;
 				pixel.w = 10;
 				pixel.h = 10;
@@ -333,8 +418,8 @@ void disassembler(uint16_t opcode, chip8* mychip8){
 				case(0x000E):
 					printf("[ Set Vx=Vx SHL 1 ]");
 					break;
-				break;
 			}
+			break;
 		case(0x9000):
 			printf("[ SNE if Vx != Vy ]");
 			break;
@@ -356,10 +441,32 @@ void disassembler(uint16_t opcode, chip8* mychip8){
 					printf("[ SKNP Vx ]");	
 					break;
 			}
+			break;
 		case(0xF000):
 			switch(opcode&0x00FF){
+				case(0x0007):
+					printf("[ LD Vx, DT ]");
+					break;
+				case(0x000A):
+					printf("[ LD Vx, K ]");
+					break;
+				case(0x0015):
+					printf("[ LD DT, Vx ]");	
+					break;
+				case(0x0018):
+					printf("[ LD ST, Vx ]");
+					break;
+				case(0x0029):
+					printf("[ set I to loc Vx digit ]");
+					break;			
 				case(0x001E):
 					printf("[ ADD I, Vx ]");
+					break;
+				case(0x0033):
+					printf("[ LD B, Vx ]");
+					break;
+				case(0x0055):
+					printf("[ LD I, Vx ]");
 					break;
 				case(0x0065):
 					printf("[ LD Vx, I ]");
@@ -401,6 +508,7 @@ void sdl_event(chip8* mychip8){
 					case SDLK_c: mychip8->keys[0xB] = 1; break;
 					case SDLK_v: mychip8->keys[0xF] = 1; break;
 				}
+				break;
 			case SDL_KEYUP:
 				switch(event.key.keysym.sym){
 					case SDLK_1: mychip8->keys[0x1] = 0; break;
@@ -420,6 +528,7 @@ void sdl_event(chip8* mychip8){
 					case SDLK_c: mychip8->keys[0xB] = 0; break;
 					case SDLK_v: mychip8->keys[0xF] = 0; break;
 				}
+				break;
 		}
 	}
 
