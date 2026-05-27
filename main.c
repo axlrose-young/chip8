@@ -5,7 +5,7 @@
 #include <SDL2/SDL.h>
 #include <time.h>
 #include <unistd.h>
-#define DEBUG_MODE 1
+#define DEBUG_MODE 0
 
 typedef struct{
 	uint8_t memory[4096];
@@ -45,15 +45,14 @@ SDL_Renderer* render = NULL;
 int draw_flag = 0;
 
 void sdl_event(chip8* mychip8);
-void load_rom(chip8* mychip8);
+void load_emulator(chip8* mychip8);
 void emulate_cycle(chip8* mychip8);
 void render_engine(chip8* mychip8);
 void disassembler(uint16_t opcode, chip8* mychip8);
 
 int main(){
 	chip8 mychip8;
-	//loading rom
-	
+
 	window = SDL_CreateWindow(
         "CHIP-8 Emulator",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -62,12 +61,10 @@ int main(){
 
 	render = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
-	load_rom(&mychip8);
+	// loading rom
+	load_emulator(&mychip8);
 	mychip8.isrunning = true;
 	mychip8.pc = 0x200;
-	mychip8.sp = 0;
-	memset(mychip8.keys, 0, sizeof(mychip8.keys));
-	memset(mychip8.display, 0, sizeof(mychip8.display));
 	srand(time(NULL));
 	
 	// 600Hz cpu speed - executes instructions at this speed
@@ -98,8 +95,12 @@ int main(){
 	return 0;
 }
 
-void load_rom(chip8* mychip8){
-	FILE* pfile = fopen("Pong.ch8","rb");
+void load_emulator(chip8* mychip8){
+	// Initializing chip8
+	memset(mychip8, 0, sizeof(chip8));
+	
+	// loading rom
+	FILE* pfile = fopen("Tetris.ch8","rb");
 	if(pfile == NULL){
 		perror("Error opening rom\n");
 	}
